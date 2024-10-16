@@ -49,6 +49,7 @@ const DynamicRecorder: React.FC<DynamicRecorderProps> = React.memo(({ onRecordin
   const audioContextRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
   const animationFrameRef = useRef<number | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
 
   const { status, startRecording, stopRecording, mediaBlobUrl } = useReactMediaRecorder({
     audio: true,
@@ -58,6 +59,7 @@ const DynamicRecorder: React.FC<DynamicRecorderProps> = React.memo(({ onRecordin
       if (audioRef.current) {
         audioRef.current.src = blobUrl
       }
+      stopVolumeMonitoring()
     },
   })
 
@@ -67,8 +69,8 @@ const DynamicRecorder: React.FC<DynamicRecorderProps> = React.memo(({ onRecordin
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-      const source = audioContextRef.current.createMediaStreamSource(stream)
+      streamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      const source = audioContextRef.current.createMediaStreamSource(streamRef.current)
       analyserRef.current = audioContextRef.current.createAnalyser()
       analyserRef.current.fftSize = 256
       source.connect(analyserRef.current)
@@ -94,6 +96,10 @@ const DynamicRecorder: React.FC<DynamicRecorderProps> = React.memo(({ onRecordin
   const stopVolumeMonitoring = useCallback(() => {
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current)
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop())
+      streamRef.current = null
     }
     setVolumeLevel(0)
   }, [])

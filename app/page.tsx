@@ -8,10 +8,87 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
 import { Slider } from '@/components/ui/slider'
-import { Mic, Upload, FileAudio, CheckCircle2, AlertCircle, Play, Pause, Copy, Clock } from 'lucide-react'
+import { Mic, Upload, FileAudio, CheckCircle2, AlertCircle, Play, Pause, Copy, Clock, Info, Send } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import DynamicRecorder from '@/components/DynamicRecorder'
+
+const AudioPlayer = ({ audioUrl }: { audioUrl: string }) => {
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(0)
+  const audioRef = useRef<HTMLAudioElement>(null)
+
+  useEffect(() => {
+    const audio = audioRef.current
+    if (audio) {
+      const setAudioData = () => {
+        setDuration(audio.duration)
+        setCurrentTime(audio.currentTime)
+      }
+
+      const handleTimeUpdate = () => {
+        setCurrentTime(audio.currentTime)
+      }
+
+      audio.addEventListener('loadedmetadata', setAudioData)
+      audio.addEventListener('timeupdate', handleTimeUpdate)
+
+      return () => {
+        audio.removeEventListener('loadedmetadata', setAudioData)
+        audio.removeEventListener('timeupdate', handleTimeUpdate)
+      }
+    }
+  }, [audioUrl])
+
+  const togglePlayPause = () => {
+    const audio = audioRef.current
+    if (audio) {
+      if (isPlaying) {
+        audio.pause()
+      } else {
+        audio.play()
+      }
+      setIsPlaying(!isPlaying)
+    }
+  }
+
+  const handleSliderChange = (newValue: number[]) => {
+    const audio = audioRef.current
+    if (audio) {
+      audio.currentTime = newValue[0]
+      setCurrentTime(newValue[0])
+    }
+  }
+
+  const formatTime = (time: number) => {
+    if (!isFinite(time)) return '0:00'
+    const minutes = Math.floor(time / 60)
+    const seconds = Math.floor(time % 60)
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`
+  }
+
+  return (
+    <div className="space-y-2">
+      <audio ref={audioRef} src={audioUrl} onEnded={() => setIsPlaying(false)} />
+      <div className="flex items-center space-x-2">
+        <Button onClick={togglePlayPause} variant="outline" size="icon">
+          {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+        </Button>
+        <Slider
+          value={[currentTime]}
+          max={duration || 100}
+          step={0.1}
+          onValueChange={handleSliderChange}
+          className="w-full"
+        />
+      </div>
+      <div className="text-sm text-gray-500">
+        {formatTime(currentTime)} / {formatTime(duration)}
+      </div>
+    </div>
+  )
+}
 
 // ... (AudioPlayer component remains the same)
 
@@ -30,14 +107,15 @@ export default function WhisperTranscription() {
   const [selectedFileName, setSelectedFileName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [uploadedAudioUrl, setUploadedAudioUrl] = useState<string | null>(null)
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (file) {
       setSelectedFileName(file.name)
       setUploadedAudioUrl(URL.createObjectURL(file))
-      await transcribeAudio(file)
+      setUploadedFile(file)
     }
   }
 
@@ -53,6 +131,12 @@ export default function WhisperTranscription() {
       setIsLoading(false)
     }
   }, [])
+
+  const handleUploadSubmit = async () => {
+    if (uploadedFile) {
+      await transcribeAudio(uploadedFile)
+    }
+  }
 
   const transcribeAudio = async (file: File) => {
     setUploadProgress(0)
@@ -114,6 +198,8 @@ export default function WhisperTranscription() {
       })
   }
 
+  const supportedFormats = ['flac', 'm4a', 'mp3', 'mp4', 'mpeg', 'mpga', 'oga', 'ogg', 'wav', 'webm']
+
   return (
     <div className="container mx-auto p-4 max-w-3xl">
       <Card className="w-full bg-gradient-to-br from-gray-50 to-white shadow-lg">
@@ -140,7 +226,7 @@ export default function WhisperTranscription() {
                   <Input
                     id="file-upload"
                     type="file"
-                    accept="audio/*"
+                    accept={supportedFormats.map(format => `.${format}`).join(',')}
                     onChange={handleFileUpload}
                     className="flex-grow"
                     ref={fileInputRef}
@@ -153,6 +239,10 @@ export default function WhisperTranscription() {
                     <Upload className="h-4 w-4" />
                   </Button>
                 </div>
+                <div className="flex items-center space-x-2 text-sm text-gray-500">
+                  <Info className="h-4 w-4" />
+                  <span>Supported formats: {supportedFormats.join(', ')}</span>
+                </div>
                 {selectedFileName && (
                   <motion.div
                     initial={{ opacity: 0, y: -10 }}
@@ -164,6 +254,12 @@ export default function WhisperTranscription() {
                   </motion.div>
                 )}
                 {uploadedAudioUrl && <AudioPlayer audioUrl={uploadedAudioUrl} />}
+                {uploadedFile && (
+                  <Button onClick={handleUploadSubmit} className="w-full">
+                    <Send className="h-4 w-4 mr-2" />
+                    Submit to Whisper
+                  </Button>
+                )}
               </div>
             </TabsContent>
             <TabsContent value="record" className="space-y-4">
