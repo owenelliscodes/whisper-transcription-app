@@ -49,7 +49,6 @@ export async function POST(req: NextRequest) {
       model: 'whisper-1',
       language: 'en',
       response_format: 'verbose_json',
-      timestamp_granularities: ['segment'],
     })
     console.log('OpenAI response received')
 

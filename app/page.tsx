@@ -1,20 +1,19 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
-import dynamic from 'next/dynamic'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
-import { Mic, Upload, FileAudio, CheckCircle2, Copy } from 'lucide-react'
+import { Slider } from '@/components/ui/slider'
+import { Mic, Upload, FileAudio, CheckCircle2, AlertCircle, Play, Pause, Copy, Clock } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import DynamicRecorder from '@/components/DynamicRecorder'
 
-const DynamicRecorderWithNoSSR = dynamic(() => Promise.resolve(DynamicRecorder), {
-  ssr: false,
-})
+// ... (AudioPlayer component remains the same)
 
 interface Segment {
   id: number;
@@ -29,28 +28,11 @@ export default function WhisperTranscription() {
   const [isLoading, setIsLoading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [selectedFileName, setSelectedFileName] = useState('')
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const [activeTab, setActiveTab] = useState('upload')
+  const [error, setError] = useState<string | null>(null)
   const [uploadedAudioUrl, setUploadedAudioUrl] = useState<string | null>(null)
-
-  useEffect(() => {
-    let interval: NodeJS.Timeout
-    if (isLoading) {
-      interval = setInterval(() => {
-        setUploadProgress((prevProgress) => {
-          if (prevProgress >= 90) {
-            clearInterval(interval)
-            return prevProgress
-          }
-          return prevProgress + 10
-        })
-      }, 500)
-    }
-    return () => clearInterval(interval)
-  }, [isLoading])
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    event.preventDefault()
     const file = event.target.files?.[0]
     if (file) {
       setSelectedFileName(file.name)
@@ -59,8 +41,20 @@ export default function WhisperTranscription() {
     }
   }
 
-  const transcribeAudio = async (file: File) => {
+  const handleRecordingComplete = useCallback(async (file: File) => {
     setIsLoading(true)
+    setError(null)
+    try {
+      await transcribeAudio(file)
+    } catch (error) {
+      console.error('Error transcribing recorded audio:', error)
+      setError('An error occurred during transcription. Please try again.')
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  const transcribeAudio = async (file: File) => {
     setUploadProgress(0)
     const formData = new FormData()
     formData.append('file', file)
@@ -71,38 +65,49 @@ export default function WhisperTranscription() {
         body: formData,
       })
 
-      const data = await response.json()
-
       if (!response.ok) {
-        throw new Error(data.error || 'Transcription failed')
+        throw new Error('Transcription failed')
       }
 
+      const data = await response.json()
       setTranscript(data.text)
       setSegments(data.segments)
+
+      // Simulate progress
+      const interval = setInterval(() => {
+        setUploadProgress((prevProgress) => {
+          if (prevProgress >= 100) {
+            clearInterval(interval)
+            return 100
+          }
+          return prevProgress + 10
+        })
+      }, 200)
     } catch (error) {
       console.error('Error:', error)
-      setTranscript('An error occurred during transcription. Please try again.')
-    } finally {
-      setIsLoading(false)
-      setUploadProgress(100)
+      throw error
     }
   }
 
-  const handleManualSubmit = async (file: File) => {
-    await transcribeAudio(file)
-    // Don't change the tab after submission
-  }
-
-  const formatTime = (time: number) => {
+  const formatTimestamp = (time: number) => {
     const minutes = Math.floor(time / 60)
     const seconds = Math.floor(time % 60)
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
   }
 
-  const copyTranscriptToClipboard = () => {
-    navigator.clipboard.writeText(transcript)
+  const getTranscriptWithTimestamps = () => {
+    return segments.map(seg => `[${formatTimestamp(seg.start)} - ${formatTimestamp(seg.end)}] ${seg.text}`).join('\n')
+  }
+
+  const getTranscriptWithoutTimestamps = () => {
+    return segments.map(seg => seg.text).join(' ')
+  }
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text)
       .then(() => {
-        alert('Transcript copied to clipboard!')
+        // You could add a toast notification here
+        console.log('Text copied to clipboard')
       })
       .catch(err => {
         console.error('Failed to copy text: ', err)
@@ -110,16 +115,19 @@ export default function WhisperTranscription() {
   }
 
   return (
-    <div className="container mx-auto p-4 max-w-2xl">
-      <Card className="w-full">
-        <CardHeader>
+    <div className="container mx-auto p-4 max-w-3xl">
+      <Card className="w-full bg-gradient-to-br from-gray-50 to-white shadow-lg">
+        <CardHeader className="space-y-1">
           <CardTitle className="text-3xl font-bold text-center bg-gradient-to-r from-primary to-primary-foreground bg-clip-text text-transparent">
             Whisper Transcription App
           </CardTitle>
+          <CardDescription className="text-center text-gray-500">
+            Upload an audio file or record your voice to get an instant transcription
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
+          <Tabs defaultValue="upload" className="w-full">
+            <TabsList className="grid w-full grid-cols-2 mb-4">
               <TabsTrigger value="upload">Upload Audio</TabsTrigger>
               <TabsTrigger value="record">Record Audio</TabsTrigger>
             </TabsList>
@@ -155,13 +163,11 @@ export default function WhisperTranscription() {
                     <span>{selectedFileName}</span>
                   </motion.div>
                 )}
-                {uploadedAudioUrl && (
-                  <audio src={uploadedAudioUrl} controls className="w-full mt-2" />
-                )}
+                {uploadedAudioUrl && <AudioPlayer audioUrl={uploadedAudioUrl} />}
               </div>
             </TabsContent>
             <TabsContent value="record" className="space-y-4">
-              <DynamicRecorderWithNoSSR onRecordingComplete={handleManualSubmit} />
+              <DynamicRecorder onRecordingComplete={handleRecordingComplete} />
             </TabsContent>
           </Tabs>
           <AnimatePresence>
@@ -180,23 +186,44 @@ export default function WhisperTranscription() {
               </motion.div>
             )}
           </AnimatePresence>
+          {error && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Error</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
           <div className="space-y-2">
             <div className="flex justify-between items-center">
               <label htmlFor="transcript" className="block text-sm font-medium text-gray-700">
                 Transcription
               </label>
-              <Button onClick={copyTranscriptToClipboard} variant="outline" size="sm">
-                <Copy className="h-4 w-4 mr-2" />
-                Copy Text
-              </Button>
+              <div className="space-x-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => copyToClipboard(getTranscriptWithoutTimestamps())}
+                >
+                  <Copy className="h-4 w-4 mr-2" />
+                  Copy Text
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => copyToClipboard(getTranscriptWithTimestamps())}
+                >
+                  <Clock className="h-4 w-4 mr-2" />
+                  Copy with Timestamps
+                </Button>
+              </div>
             </div>
             <div className="relative">
               <Textarea
                 id="transcript"
-                value={segments.map(seg => `[${formatTime(seg.start)} - ${formatTime(seg.end)}] ${seg.text}`).join('\n')}
+                value={getTranscriptWithTimestamps()}
                 readOnly
                 placeholder="Transcription will appear here..."
-                className="w-full h-60 resize-none pr-8"
+                className="w-full h-60 resize-none pr-8 bg-white"
               />
               {transcript && (
                 <motion.div
